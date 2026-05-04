@@ -2,5 +2,9 @@
   "reactions": "Reactions",
   "add-reaction": "Add reaction",
   "error.invalid-reaction": "Invalid reaction",
-  "error.maximum-reached": "Maximum reactions reached"
+  "error.maximum-reached": "Maximum reactions reached",
+  "error.reaction-not-allowed": "This reaction is not allowed",
+  "settings.allowed-post-reactions": "Allowed Post Reactions (Optional)",
+  "settings.allowed-post-reactions-help": "Restrict which emojis can be used as reactions on posts. Leave empty to allow all emojis. Does not affect chat message reactions.",
+  "settings.allowed-post-reactions.add": "Add Emoji"
 }

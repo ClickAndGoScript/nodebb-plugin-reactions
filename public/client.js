@@ -63,23 +63,31 @@ $(document).ready(function () {
 		$('[component="topic"]').on('click', '[component="post/reaction/add"]', function () {
 			const reactionAddEl = $(this);
 			const pid = reactionAddEl.attr('data-pid');
-			require(['emoji-dialog'], function (emojiDialog) {
-				emojiDialog.toggle(reactionAddEl[0], function (_, name, dialog) {
-					emojiDialog.dialogActions.close(dialog);
+			const allowed = Array.isArray(config.allowedPostReactions) ? config.allowedPostReactions : [];
 
-					socket.emit('plugins.reactions.addPostReaction', {
-						pid: pid,
-						reaction: name,
-					}, function (err) {
-						if (err) {
-							alerts.error(err.message);
-							throw err;
-						}
+			function applyReaction(name) {
+				socket.emit('plugins.reactions.addPostReaction', {
+					pid: pid,
+					reaction: name,
+				}, function (err) {
+					if (err) {
+						alerts.error(err.message);
+						throw err;
+					}
+					$('[component="post/reaction"][data-pid="' + pid + '"][data-reaction="' + name + '"]').addClass('reacted');
+				});
+			}
 
-						$('[component="post/reaction"][data-pid="' + pid + '"][data-reaction="' + name + '"]').addClass('reacted');
+			if (allowed.length > 0) {
+				openAllowedReactionsPicker(reactionAddEl, allowed, applyReaction);
+			} else {
+				require(['emoji-dialog'], function (emojiDialog) {
+					emojiDialog.toggle(reactionAddEl[0], function (_, name, dialog) {
+						emojiDialog.dialogActions.close(dialog);
+						applyReaction(name);
 					});
 				});
-			});
+			}
 		});
 	}
 
@@ -294,6 +302,70 @@ $(document).ready(function () {
 					disposeTooltip($(this));
 				});
 			}
+		});
+	}
+
+	let openPickerEl = null;
+	function closeOpenPicker() {
+		if (openPickerEl) {
+			openPickerEl.remove();
+			openPickerEl = null;
+			$(document).off('mousedown.reactionsPicker keydown.reactionsPicker');
+		}
+	}
+
+	function openAllowedReactionsPicker(anchorEl, allowed, onPick) {
+		closeOpenPicker();
+		require(['emoji'], function (emoji) {
+			emoji.init(function () {
+				const $picker = $('<div class="reactions-allowed-picker"></div>');
+				const $grid = $('<div class="reactions-allowed-grid"></div>');
+				allowed.forEach(function (name) {
+					const found = emoji.table[name];
+					if (!found) return;
+					const $btn = $('<button type="button" class="reactions-allowed-item" tabindex="0"></button>');
+					$btn.attr('title', name);
+					$btn.attr('data-reaction', name);
+					$btn.html(emoji.buildEmoji(found));
+					$btn.on('click', function (e) {
+						e.preventDefault();
+						e.stopPropagation();
+						closeOpenPicker();
+						onPick(name);
+					});
+					$grid.append($btn);
+				});
+				$picker.append($grid);
+				$('body').append($picker);
+
+				const offset = anchorEl.offset();
+				const anchorH = anchorEl.outerHeight();
+				const pickerW = $picker.outerWidth();
+				const winW = $(window).width();
+				let left = offset.left;
+				if (left + pickerW > winW - 8) {
+					left = Math.max(8, winW - pickerW - 8);
+				}
+				$picker.css({
+					position: 'absolute',
+					top: offset.top + anchorH + 4,
+					left: left,
+				});
+
+				openPickerEl = $picker;
+
+				setTimeout(function () {
+					$(document).on('mousedown.reactionsPicker', function (ev) {
+						if (!$(ev.target).closest('.reactions-allowed-picker').length &&
+							!$(ev.target).closest(anchorEl).length) {
+							closeOpenPicker();
+						}
+					});
+					$(document).on('keydown.reactionsPicker', function (ev) {
+						if (ev.key === 'Escape') closeOpenPicker();
+					});
+				}, 0);
+			});
 		});
 	}
 });

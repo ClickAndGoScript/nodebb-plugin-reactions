@@ -42,6 +42,17 @@
 				</div>
 
 				<div class="mb-3">
+					<h5 class="fw-bold tracking-tight settings-header">[[reactions:settings.allowed-post-reactions]]</h5>
+					<p class="form-text">
+						[[reactions:settings.allowed-post-reactions-help]]
+					</p>
+					<div class="form-group" data-type="sorted-list" data-sorted-list="allowed-post-reactions" data-item-template="admin/plugins/reactions/partials/sorted-list/allowed-emoji-item" data-form-template="admin/plugins/reactions/partials/sorted-list/allowed-emoji-form">
+						<ul data-type="list" class="list-group"></ul>
+						<button type="button" data-type="add" class="btn btn-info mt-2">[[reactions:settings.allowed-post-reactions.add]]</button>
+					</div>
+				</div>
+
+				<div class="mb-3">
 					<h5 class="fw-bold tracking-tight settings-header">[[reactions:settings.reaction-reputations]]</h5>
 
 					<p class="form-text">

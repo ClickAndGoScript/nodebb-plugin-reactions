@@ -62,6 +62,8 @@ ReactionsPlugin.getPluginConfig = async function (config) {
 			parseInt(settings.maximumReactionsPerMessage, 10) : DEFAULT_MAX_EMOTES;
 		config.enablePostReactions = settings.enablePostReactions === 'on';
 		config.enableMessageReactions = settings.enableMessageReactions === 'on';
+		config.allowedPostReactions = Array.isArray(settings['allowed-post-reactions']) ?
+			settings['allowed-post-reactions'].map(r => r && r.reaction).filter(Boolean) : [];
 	} catch (e) {
 		console.error(e);
 	}
@@ -333,6 +335,11 @@ SocketPlugins.reactions = {
 		const settings = await meta.settings.get('reactions');
 		if (settings.enablePostReactions === 'off') {
 			throw new Error('[[error:post-reactions-disabled]]');
+		}
+		const allowedReactions = Array.isArray(settings['allowed-post-reactions']) ?
+			settings['allowed-post-reactions'].map(r => r && r.reaction).filter(Boolean) : [];
+		if (allowedReactions.length > 0 && !allowedReactions.includes(data.reaction)) {
+			throw new Error('[[reactions:error.reaction-not-allowed]]');
 		}
 		const maximumReactions = settings.maximumReactions || DEFAULT_MAX_EMOTES;
 		const [postData, totalReactions, emojiIsAlreadyExist, alreadyReacted, reactionReputation] = await Promise.all([

@@ -6,6 +6,7 @@
 	"error.maximum-per-user-per-post-reached": "Maximum reactions per user per post reached: %1",
 	"error.maximum-per-user-per-message-reached": "Maximum reactions per user per message reached: %1",
 	"error.post-reactions-disabled": "Post reactions are disabled",
+	"error.post-deleted": "This post has been deleted",
 	"error.message-reactions-disabled": "Message reactions are disabled",
 	"error.reaction-not-allowed": "This reaction is not allowed",
 	"settings.title": "Reactions plugin settings",

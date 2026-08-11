@@ -25,11 +25,11 @@ $(document).ready(function () {
 		});
 
 		socket.on('event:post_deleted', function (data) {
-			$('[component="post/reactions"][data-pid="' + data.pid + '"]').addClass('hidden');
+			$('[component="post/reaction/add"][data-pid="' + data.pid + '"]').addClass('hidden');
 		});
 
 		socket.on('event:post_restored', function (data) {
-			$('[component="post/reactions"][data-pid="' + data.pid + '"]').removeClass('hidden');
+			$('[component="post/reaction/add"][data-pid="' + data.pid + '"]').removeClass('hidden');
 		});
 
 		socket.on('event:chats.delete', function (mid) {

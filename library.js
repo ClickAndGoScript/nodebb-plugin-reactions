@@ -361,7 +361,7 @@ SocketPlugins.reactions = {
 			throw new Error('[[reactions:error.reaction-not-allowed]]');
 		}
 		const [postData, totalReactions, emojiIsAlreadyExist, alreadyReacted, reactionReputation] = await Promise.all([
-			posts.getPostFields(data.pid, ['pid', 'tid', 'uid', 'content', 'sourceContent']),
+			posts.getPostFields(data.pid, ['pid', 'tid', 'uid', 'content', 'sourceContent', 'deleted']),
 			db.setCount(`pid:${data.pid}:reactions`),
 			db.isSetMember(`pid:${data.pid}:reactions`, data.reaction),
 			db.isSetMember(`pid:${data.pid}:reaction:${data.reaction}`, socket.uid),
@@ -370,6 +370,9 @@ SocketPlugins.reactions = {
 		const { tid } = postData;
 		if (!tid) {
 			throw new Error('[[error:no-post]]');
+		}
+		if (postData.deleted) {
+			throw new Error('[[reactions:error.post-deleted]]');
 		}
 		data.uid = socket.uid;
 		data.tid = tid;
@@ -434,17 +437,21 @@ SocketPlugins.reactions = {
 			throw new Error('[[reactions:error.invalid-reaction]]');
 		}
 
-		const [settings, tid, hasReacted, reactionReputation] = await Promise.all([
+		const [settings, postFields, hasReacted, reactionReputation] = await Promise.all([
 			loadPluginConfig(),
-			posts.getPostField(data.pid, 'tid'),
+			posts.getPostFields(data.pid, ['tid', 'deleted']),
 			db.isSetMember(`pid:${data.pid}:reaction:${data.reaction}`, socket.uid),
 			getReactionReputation(data.reaction),
 		]);
+		const { tid } = postFields;
 		if (!settings.enablePostReactions) {
 			throw new Error('[[error:post-reactions-disabled]]');
 		}
 		if (!tid) {
 			throw new Error('[[error:no-post]]');
+		}
+		if (postFields.deleted) {
+			throw new Error('[[reactions:error.post-deleted]]');
 		}
 		data.uid = socket.uid;
 		data.tid = tid;

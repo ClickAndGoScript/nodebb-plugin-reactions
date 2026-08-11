@@ -6,6 +6,7 @@
 	"error.maximum-per-user-per-post-reached": "每个用户每篇帖子的最大回应数: %1",
 	"error.maximum-per-user-per-message-reached": "每个用户每条信息的最大回应数: %1",
 	"error.post-reactions-disabled": "帖子回应已禁用",
+	"error.post-deleted": "该帖子已被删除",
 	"error.message-reactions-disabled": "信息回应已禁用",
 	"settings.title": "回应插件设置",
 	"settings.enable-post-reactions": "启用帖子回应",

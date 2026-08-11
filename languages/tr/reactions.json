@@ -6,6 +6,7 @@
 	"error.maximum-per-user-per-post-reached": "Bir kullanıcıya iletisi için verilebilecek en fazla sayıda tepkiye ulaşıldı: %1",
 	"error.maximum-per-user-per-message-reached": "Bir kullanıcıya mesajı için verilebilecek en fazla sayıda tepkiye ulaşıldı: %1",
 	"error.post-reactions-disabled": "İleti tepkileri devre dışı",
+	"error.post-deleted": "Bu ileti silindi",
 	"error.message-reactions-disabled": "Mesaj tepkileri devre dışı",
 	"settings.title": "Tepkiler eklentisi ayarları",
 	"settings.enable-post-reactions": "İleti tepkilerini aktifleştir",

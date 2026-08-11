@@ -15,6 +15,7 @@
 	"settings.allowed-post-reactions": "אימוג'ים מורשים לתגובה על פוסטים (אופציונלי)",
 	"settings.allowed-post-reactions-help": "הגבל את האימוג'ים שניתן להשתמש בהם כתגובה על פוסטים. השאר ריק כדי לאפשר את כל האימוג'ים. לא משפיע על תגובות בהודעות צ'אט.",
 	"settings.allowed-post-reactions.add": "הוסף אימוג'י",
+	"settings.allowed-post-reactions.done": "סיום",
 	"settings.reaction-reputations": "מוניטין תגובה (אופציונלי)",
 	"settings.reaction-reputations-help": "אתה יכול להקצות מוניטין לתגובות מסוימות. כאשר התגובה נוספת לפוסט, בעל הפוסט יקבל את המוניטין שנקבע.",
 	"settings.reaction-reputations.add": "הוסף כלל",

@@ -1,9 +1,10 @@
 'use strict';
 
 define('admin/plugins/reactions', [
-	'settings', 'alerts', 'hooks', 'benchpress', 'emoji-dialog', 'emoji', 'modals',
-], function (Settings, alerts, hooks, benchpress, emojiDialog, emoji, modals) {
+	'settings', 'alerts', 'hooks', 'benchpress', 'emoji-dialog', 'emoji', 'modals', 'translator',
+], function (Settings, alerts, hooks, benchpress, emojiDialog, emoji, modals, translator) {
 	const ACP = {};
+	let multiPickerObserver = null;
 	ACP.init = function () {
 		emoji.init(function () {
 			Settings.load('reactions', $('.reactions-settings'), onSettingsLoaded);
@@ -145,46 +146,85 @@ define('admin/plugins/reactions', [
 		});
 	}
 
-	// Open the standard emoji-dialog but stay open until the user clicks elsewhere or presses Done.
-	// Collect every clicked emoji into an array, then pass them all back at once.
+	// emoji-dialog lazily creates & fetches its #emoji-dialog element on first use
+	// (emojiDialog.init does an async JSON fetch + render), so callers can't assume it
+	// already exists in the DOM right after calling toggle(). Wait for init explicitly
+	// instead of guessing with a timeout.
+	function ensureEmojiDialog(callback) {
+		const $existing = $('#emoji-dialog');
+		if ($existing.length) {
+			callback($existing);
+			return;
+		}
+		emojiDialog.init(callback);
+	}
+
+	// Open the standard emoji-dialog but stay open until the user clicks elsewhere or
+	// presses Done, collecting every clicked emoji into an array before passing them
+	// all back at once.
 	function openMultiEmojiPicker(anchorEl, onDone) {
-		const picked = [];
-		emojiDialog.toggle(anchorEl, function (e, name) {
-			const idx = picked.indexOf(name);
-			if (idx >= 0) {
-				picked.splice(idx, 1);
-				$(e.currentTarget).removeClass('reactions-picked');
-			} else {
-				picked.push(name);
-				$(e.currentTarget).addClass('reactions-picked');
+		ensureEmojiDialog(function ($dialog) {
+			// A stale observer from an abandoned previous session (e.g. the admin
+			// navigated away mid-pick) must be dropped before we touch the dialog's
+			// class, or forcing it closed below would fire that old callback instead.
+			if (multiPickerObserver) {
+				multiPickerObserver.disconnect();
+				multiPickerObserver = null;
 			}
-		});
 
-		// Inject a "Done" bar into the dialog if not already present.
-		setTimeout(function () {
-			const $dialog = $('#emoji-dialog');
-			if (!$dialog.length) return;
-			$dialog.find('.reactions-multi-done').remove();
-			const $bar = $('<div class="reactions-multi-done" style="position:sticky;bottom:0;background:var(--bs-body-bg,#fff);padding:6px;border-top:1px solid var(--bs-border-color,#ddd);text-align:end;"></div>');
-			const $btn = $('<button type="button" class="btn btn-primary btn-sm">Done</button>');
-			$btn.on('click', function () {
+			// emojiDialog.toggle() closes the dialog if it's already open (e.g. left open
+			// from an unrelated interaction) instead of opening it for us — start from a
+			// known closed state so the call below always opens fresh.
+			if ($dialog.hasClass('open')) {
 				emojiDialog.dialogActions.close($dialog);
-				$bar.remove();
-				onDone(picked);
-			});
-			$bar.append($btn);
-			$dialog.append($bar);
+			}
 
-			// Also fire onDone if dialog closes by other means (e.g. clicking outside).
-			const closeObserver = new MutationObserver(function () {
-				if (!$dialog.hasClass('open')) {
-					closeObserver.disconnect();
-					$bar.remove();
-					onDone(picked);
+			const picked = [];
+			emojiDialog.toggle(anchorEl, function (e, name) {
+				const idx = picked.indexOf(name);
+				if (idx >= 0) {
+					picked.splice(idx, 1);
+					$(e.currentTarget).removeClass('reactions-picked');
+				} else {
+					picked.push(name);
+					$(e.currentTarget).addClass('reactions-picked');
 				}
 			});
-			closeObserver.observe($dialog[0], { attributes: true, attributeFilter: ['class'] });
-		}, 0);
+
+			attachMultiDoneBar($dialog, picked, onDone);
+		});
+	}
+
+	// Injects a "Done" bar into the (now open) dialog and resolves `onDone` either when
+	// it's clicked or when the dialog closes by any other means (e.g. clicking outside).
+	function attachMultiDoneBar($dialog, picked, onDone) {
+		$dialog.find('.reactions-multi-done').remove();
+
+		const $bar = $('<div class="reactions-multi-done"></div>');
+		const $btn = $('<button type="button" class="btn btn-primary btn-sm"></button>');
+		translator.translate('[[reactions:settings.allowed-post-reactions.done]]', function (text) {
+			$btn.text(text);
+		});
+		$btn.on('click', function () {
+			emojiDialog.dialogActions.close($dialog);
+		});
+		$bar.append($btn);
+		$dialog.append($bar);
+
+		let settled = false;
+		function settle() {
+			if (settled) return;
+			settled = true;
+			multiPickerObserver.disconnect();
+			multiPickerObserver = null;
+			$bar.remove();
+			onDone(picked.slice());
+		}
+
+		multiPickerObserver = new MutationObserver(function () {
+			if (!$dialog.hasClass('open')) settle();
+		});
+		multiPickerObserver.observe($dialog[0], { attributes: true, attributeFilter: ['class'] });
 	}
 
 	return ACP;

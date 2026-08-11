@@ -80,6 +80,15 @@
 	}
 }
 
+#emoji-dialog .reactions-multi-done {
+	position: sticky;
+	bottom: 0;
+	background: var(--bs-body-bg, #fff);
+	padding: 6px;
+	border-top: 1px solid var(--bs-border-color, #ddd);
+	text-align: end;
+}
+
 #emoji-dialog .emoji-link.reactions-picked {
 	background-color: var(--bs-primary-bg-subtle, rgba(13, 110, 253, 0.15));
 	border: 2px solid var(--bs-primary, #0d6efd);

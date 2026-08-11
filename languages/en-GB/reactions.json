@@ -20,6 +20,7 @@
 	"settings.allowed-post-reactions": "Allowed Post Reactions (Optional)",
 	"settings.allowed-post-reactions-help": "Restrict which emojis can be used as reactions on posts. Leave empty to allow all emojis. Does not affect chat message reactions.",
 	"settings.allowed-post-reactions.add": "Add Emoji",
+	"settings.allowed-post-reactions.done": "Done",
 	"settings.reaction-reputations": "Reaction Reputations (Optional)",
 	"settings.reaction-reputations-help": "You can assign a reputation to individual reactions. When a reaction is applied to a post, the owner of that post will get this reputation.",
 	"settings.reaction-reputations.add": "Add Rule",

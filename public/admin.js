@@ -1,8 +1,8 @@
 'use strict';
 
 define('admin/plugins/reactions', [
-	'settings', 'alerts', 'hooks', 'benchpress', 'emoji-dialog', 'emoji',
-], function (Settings, alerts, hooks, benchpress, emojiDialog, emoji) {
+	'settings', 'alerts', 'hooks', 'benchpress', 'emoji-dialog', 'emoji', 'modals',
+], function (Settings, alerts, hooks, benchpress, emojiDialog, emoji, modals) {
 	const ACP = {};
 	ACP.init = function () {
 		emoji.init(function () {
@@ -120,27 +120,24 @@ define('admin/plugins/reactions', [
 					$form.remove();
 				});
 
-				// Wire edit button — falls back to the default modal flow by re-opening bootbox
-				// with a single-emoji form. We keep edit simple: just allow removing & re-adding.
-				$item.find('[data-type="edit"]').on('click', function () {
-					require(['bootbox'], function (bootbox) {
-						benchpress.render(formTpl, {}).then(function (editHtml) {
-							const $editForm = $(editHtml);
-							$editForm.deserialize({ reaction: itemData.reaction });
-							const modal = bootbox.confirm($editForm, function (save) {
-								if (!save) return;
-								const newName = (modal.find('input[name="reaction"]').val() || '').trim();
-								if (!newName) return;
-								itemData.reaction = newName;
-								$form.find('input[name="reaction"]').val(newName);
-								const found = emoji.table[newName];
-								$reactionEl.attr('data-reaction', newName);
-								if (found) $reactionEl.html(emoji.buildEmoji(found));
-								$item.find('strong').text(' ' + newName);
-							});
-							hooks.fire('action:settings.sorted-list.modal', { modal });
-						});
+				// Wire edit button — falls back to the default modal flow by re-opening a
+				// single-emoji form. We keep edit simple: just allow removing & re-adding.
+				$item.find('[data-type="edit"]').on('click', async function () {
+					const editHtml = await benchpress.render(formTpl, {});
+					const $editForm = $(editHtml);
+					$editForm.deserialize({ reaction: itemData.reaction });
+					const modal = await modals.confirm($editForm, function (save) {
+						if (!save) return;
+						const newName = (modal.find('input[name="reaction"]').val() || '').trim();
+						if (!newName) return;
+						itemData.reaction = newName;
+						$form.find('input[name="reaction"]').val(newName);
+						const found = emoji.table[newName];
+						$reactionEl.attr('data-reaction', newName);
+						if (found) $reactionEl.html(emoji.buildEmoji(found));
+						$item.find('strong').text(' ' + newName);
 					});
+					hooks.fire('action:settings.sorted-list.modal', { modal });
 				});
 
 				hooks.fire('action:settings.sorted-list.parse', { itemHtml: $item });

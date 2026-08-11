@@ -1,5 +1,5 @@
 {
-  "name": "@nodebb/nodebb-plugin-reactions",
+  "name": "@clickandgo/nodebb-plugin-reactions",
   "version": "3.0.4",
   "nbbpm": {
     "compatibility": "^4.14.0"
@@ -8,19 +8,15 @@
   "main": "library.js",
   "repository": {
     "type": "git",
-    "url": "https://github.com/NodeBB-Community/nodebb-plugin-reactions.git"
+    "url": "https://github.com/ClickAndGoScript/nodebb-plugin-reactions.git"
   },
   "keywords": [
     "nodebb",
     "plugin",
     "reactions"
   ],
-  "author": {
-    "name": "pichalite",
-    "email": "pichalite.com@gmail.com"
-  },
   "bugs": {
-    "url": "https://github.com/NodeBB-Community/nodebb-plugin-reactions/issues"
+    "url": "https://github.com/ClickAndGoScript/nodebb-plugin-reactions/issues"
   },
   "maintainers": [
     {
@@ -31,6 +27,11 @@
       "name": "Barış Soner Uşaklı",
       "email": "baris@nodebb.org",
       "url": "https://github.com/barisusakli"
+    },
+    {
+      "name": "ClickAndGoScript",
+      "email": "click.go.script@gmail.com",
+      "url": "https://github.com/ClickAndGoScript"
     }
   ],
   "peerDependencies": {

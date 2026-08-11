@@ -5,6 +5,7 @@ define('admin/plugins/reactions', [
 ], function (Settings, alerts, hooks, benchpress, emojiDialog, emoji, modals, translator) {
 	const ACP = {};
 	let multiPickerObserver = null;
+	let emojiDialogInitPromise = null;
 	ACP.init = function () {
 		emoji.init(function () {
 			Settings.load('reactions', $('.reactions-settings'), onSettingsLoaded);
@@ -149,14 +150,23 @@ define('admin/plugins/reactions', [
 	// emoji-dialog lazily creates & fetches its #emoji-dialog element on first use
 	// (emojiDialog.init does an async JSON fetch + render), so callers can't assume it
 	// already exists in the DOM right after calling toggle(). Wait for init explicitly
-	// instead of guessing with a timeout.
+	// instead of guessing with a timeout. Concurrent calls (e.g. a double-click on Add
+	// before the first init resolves) share the same in-flight init instead of each
+	// calling emojiDialog.init() independently — that module always appends a fresh
+	// element with no de-dupe of its own, so two concurrent calls would otherwise leave
+	// two #emoji-dialog nodes in the DOM.
 	function ensureEmojiDialog(callback) {
 		const $existing = $('#emoji-dialog');
 		if ($existing.length) {
 			callback($existing);
 			return;
 		}
-		emojiDialog.init(callback);
+		if (!emojiDialogInitPromise) {
+			emojiDialogInitPromise = new Promise(function (resolve) {
+				emojiDialog.init(resolve);
+			});
+		}
+		emojiDialogInitPromise.then(callback);
 	}
 
 	// Open the standard emoji-dialog but stay open until the user clicks elsewhere or
@@ -178,6 +188,11 @@ define('admin/plugins/reactions', [
 			if ($dialog.hasClass('open')) {
 				emojiDialog.dialogActions.close($dialog);
 			}
+
+			// A previous session's checkmarks are still in the markup (toggle() never
+			// clears them) — without this a just-closed pick would visibly look
+			// "already selected" on reopen despite the new `picked` array being empty.
+			$dialog.find('.reactions-picked').removeClass('reactions-picked');
 
 			const picked = [];
 			emojiDialog.toggle(anchorEl, function (e, name) {

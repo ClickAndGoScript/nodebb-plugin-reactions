@@ -6,7 +6,7 @@ This plugin requires nodebb-plugin-emoji to be active.
 # Installation
 Install via one-click activation in the Admin Control Panel or run the following command:
 
-    npm i @nodebb/nodebb-plugin-reactions
+    npm i git+https://github.com/ClickAndGoScript/nodebb-plugin-reactions
 
 # Emojis in Topic Titles and Notifications
 

@@ -155,7 +155,8 @@ $(document).ready(function () {
 	}
 
 	function updatePostReactionCount(data, type) {
-		const maxReactionsReached = parseInt(data.totalReactions, 10) > config.maximumReactions;
+		const maxReactionsReached = config.maximumReactions > 0 &&
+			parseInt(data.totalReactions, 10) >= config.maximumReactions;
 		$('[component="post/reaction/add"][data-pid="' + data.pid + '"]').toggleClass('max-reactions', maxReactionsReached);
 
 		const reactionEl = $(`[component="post/reaction"][data-pid="${data.pid}"][data-reaction="${data.reaction}"]`);
@@ -187,7 +188,8 @@ $(document).ready(function () {
 	}
 
 	function updateMessageReactionCount(data, type) {
-		const maxReactionsReached = parseInt(data.totalReactions, 10) > config.maximumReactionsPerMessage;
+		const maxReactionsReached = config.maximumReactionsPerMessage > 0 &&
+			parseInt(data.totalReactions, 10) >= config.maximumReactionsPerMessage;
 		$('[component="message/reaction/add"][data-mid="' + data.mid + '"]').toggleClass('max-reactions', maxReactionsReached);
 
 		const reactionEl = $(`[component="message/reaction"][data-mid="${data.mid}"][data-reaction="${data.reaction}"]`);
@@ -244,9 +246,9 @@ $(document).ready(function () {
 					return;
 				}
 				if (usernames.length + data.otherCount > data.cutoff) {
-					usernames = usernames.join(', ').replace(/,/g, '|');
-					usernames = await translator.translate('[[topic:users_and_others, ' + usernames + ', ' + data.otherCount + ']]');
-					usernames = usernames.replace(/\|/g, ',');
+					usernames = await translator.translate(
+						translator.compile('topic:users-and-others', usernames.join(', '), data.otherCount),
+					);
 				} else {
 					usernames = usernames.join(', ');
 				}

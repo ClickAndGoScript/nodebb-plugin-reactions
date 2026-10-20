@@ -19,6 +19,9 @@ let emojiTable = null;
 let emojiAliases = null;
 
 const DEFAULT_MAX_EMOTES = 4;
+const POST_MERGE_ID = 'reactions-post';
+const MESSAGE_MERGE_ID = 'reactions-message';
+const MAX_USERS_IN_FULL_LIST = 200;
 
 function nameToEmoji(name) {
 	if (!emojiTable) {
@@ -62,6 +65,7 @@ ReactionsPlugin.getPluginConfig = async function (config) {
 	config.maximumReactionsPerUserPerMessage = settings.maximumReactionsPerUserPerMessage;
 
 	config.enablePostReactions = settings.enablePostReactions;
+	config.allowSelfReactions = settings.allowSelfReactions;
 	config.enableMessageReactions = settings.enableMessageReactions;
 	config.allowedPostReactions = settings.allowedPostReactions;
 	return config;
@@ -83,6 +87,10 @@ async function loadPluginConfig() {
 
 	settings.enablePostReactions = settings.enablePostReactions === 'on';
 	settings.enableMessageReactions = settings.enableMessageReactions === 'on';
+	settings.allowSelfReactions = settings.allowSelfReactions === 'on';
+	// absent = on (previous behaviour); only an explicit 'off' disables them
+	settings.deleteNotificationOnRemove = settings.deleteNotificationOnRemove !== 'off';
+	settings.deleteNotificationOnUnvote = settings.deleteNotificationOnUnvote !== 'off';
 	settings.allowedPostReactions = Array.isArray(settings['allowed-post-reactions']) ?
 		settings['allowed-post-reactions'].map(r => r && r.reaction).filter(Boolean) : [];
 	return settings;
@@ -97,8 +105,112 @@ ReactionsPlugin.filterSettingsGet = async function (hookData) {
 		if (!values.hasOwnProperty('enableMessageReactions')) {
 			values.enableMessageReactions = 'on';
 		}
+		if (!values.hasOwnProperty('deleteNotificationOnRemove')) {
+			values.deleteNotificationOnRemove = 'on';
+		}
+		if (!values.hasOwnProperty('deleteNotificationOnUnvote')) {
+			values.deleteNotificationOnUnvote = 'on';
+		}
 	}
 	return hookData;
+};
+
+// Several users reacting with the SAME emoji to the same post / message become one notification:
+// "A and 3 others have reacted with :smile: to your post in <topic>".
+// Different emojis on the same post stay separate notifications.
+ReactionsPlugin.mergeReactionNotifications = async function (data) {
+	if (!data || !Array.isArray(data.notifications)) {
+		return data;
+	}
+	const groups = new Map(); // `${mergeId}::${emoji}` -> notifications (only the same emoji on the same post/message is merged)
+	data.notifications.forEach((notif) => {
+		if (notif && notif.type === 'reaction' && typeof notif.mergeId === 'string' &&
+			(notif.mergeId.startsWith(`${POST_MERGE_ID}:`) || notif.mergeId.startsWith(`${MESSAGE_MERGE_ID}:`))) {
+			const groupKey = `${notif.mergeId}::${notif.reaction || ''}`;
+			if (!groups.has(groupKey)) {
+				groups.set(groupKey, []);
+			}
+			groups.get(groupKey).push(notif);
+		}
+	});
+
+	const removed = new Set();
+	groups.forEach((set) => {
+		if (set.length <= 1) {
+			return;
+		}
+		const target = set[0];
+		const names = [...new Set(set.map(n => n.user && n.user.displayname).filter(Boolean))]
+			.map(name => translator.escape(name));
+		if (!names.length) {
+			return;
+		}
+		const emojis = [...new Set(set.map(n => n.reaction).filter(Boolean))]
+			.slice(0, 5).map(name => `:${name}:`).join(' ');
+		const isPost = set[0].mergeId.startsWith(`${POST_MERGE_ID}:`);
+		const where = isPost ?
+			[target.topicTitle] :
+			[target.roomIcon, translator.escape(target.roomName || '')];
+		const baseKey = isPost ?
+			'reactions:notification.user-has-reacted-to-your-post-in-topic' :
+			'reactions:notification.user-has-reacted-to-your-message-in-room';
+
+		let key = baseKey;
+		let args = [names[0], emojis, ...where];
+		if (names.length === 2) {
+			key = `${baseKey}-two`;
+			args = [names[0], names[1], emojis, ...where];
+		} else if (names.length > 2) {
+			key = `${baseKey}-multiple`;
+			args = [names[0], names.length - 1, emojis, ...where];
+		}
+		target.bodyShort = translator.compile(key, ...args);
+		target.mergeCount = set.length;
+		set.slice(1).forEach(n => removed.add(n));
+	});
+	if (removed.size) {
+		data.notifications = data.notifications.filter(n => !removed.has(n));
+	}
+	return data;
+};
+
+// The forum's built-in upvote ("like", not our emoji reactions): when the voter takes the upvote back
+// (or switches it to a downvote), NodeBB core fires action:post.unvote but keeps the notification.
+// Core's notification id for it is `upvote:post:<pid>:uid:<voter>`.
+ReactionsPlugin.onUnvote = async function (data) {
+	try {
+		if (!data || data.current !== 'upvote' || !data.pid || !data.uid) {
+			return;
+		}
+		const settings = await loadPluginConfig();
+		if (!settings.deleteNotificationOnUnvote) {
+			return;
+		}
+		await notifications.rescind(`upvote:post:${data.pid}:uid:${data.uid}`);
+	} catch (e) {
+		console.error(e);
+	}
+};
+
+// Notification texts are stored with ":name:" shortcodes. After NodeBB translated them, swap the shortcodes
+// for the real emoji image (the HTML cannot travel through translator arguments, they are escaped).
+ReactionsPlugin.renderNotificationEmojis = async function (data) {
+	if (!data || !Array.isArray(data.notifications)) {
+		return data;
+	}
+	data.notifications.forEach((notif) => {
+		if (notif && notif.type === 'reaction' && typeof notif.bodyShort === 'string') {
+			try {
+				notif.bodyShort = notif.bodyShort.replace(/:([a-z0-9_+-]+):/gi, (whole, name) => {
+					const html = parse(name.toLowerCase());
+					return html || whole;
+				});
+			} catch (e) {
+				console.error(e);
+			}
+		}
+	});
+	return data;
 };
 
 ReactionsPlugin.addNotificationFilters = async (data) => {
@@ -343,6 +455,41 @@ async function giveOwnerReactionReputation(reactionReputation, pid) {
 	}
 }
 
+// When a user takes back a reaction, the notification that was sent to the author is deleted too.
+// Failing to delete it must never make removing the reaction itself fail.
+async function rescindReactionNotification(nid, enabled = true) {
+	if (!enabled) {
+		return;
+	}
+	try {
+		await notifications.rescind(nid);
+	} catch (e) {
+		console.error(e);
+	}
+}
+
+async function getReactionSetKey(socket, data) {
+	if (!socket.uid) {
+		throw new Error('[[error:not-logged-in]]');
+	}
+	if (!nameToEmoji(data.reaction)) {
+		throw new Error('[[reactions:error.invalid-reaction]]');
+	}
+	if (data.type === 'post') {
+		if (!await privileges.posts.can('topics:read', data.pid, socket.uid)) {
+			throw new Error('[[error:not-allowed]]');
+		}
+		return `pid:${data.pid}:reaction:${data.reaction}`;
+	} else if (data.type === 'message') {
+		const roomId = await messaging.getMessageField(data.mid, 'roomId');
+		if (!await messaging.canViewMessage(data.mid, roomId, socket.uid)) {
+			throw new Error('[[error:not-allowed]]');
+		}
+		return `mid:${data.mid}:reaction:${data.reaction}`;
+	}
+	throw new Error('[[error:invalid-data]]');
+}
+
 SocketPlugins.reactions = {
 	addPostReaction: async function (socket, data) {
 		if (!socket.uid) {
@@ -374,6 +521,10 @@ SocketPlugins.reactions = {
 		if (postData.deleted) {
 			throw new Error('[[reactions:error.post-deleted]]');
 		}
+		const isOwnPost = parseInt(postData.uid, 10) === parseInt(socket.uid, 10);
+		if (isOwnPost && !settings.allowSelfReactions) {
+			throw new Error('[[reactions:error.cannot-react-own-post]]');
+		}
 		data.uid = socket.uid;
 		data.tid = tid;
 		if (!emojiIsAlreadyExist) {
@@ -397,7 +548,7 @@ SocketPlugins.reactions = {
 			db.setAdd(`pid:${data.pid}:reaction:${data.reaction}`, socket.uid),
 		]);
 
-		if (!alreadyReacted && reactionReputation > 0) {
+		if (!alreadyReacted && reactionReputation > 0 && !isOwnPost) {
 			await giveOwnerReactionReputation(reactionReputation, data.pid);
 		}
 
@@ -417,6 +568,9 @@ SocketPlugins.reactions = {
 				),
 				bodyLong: parsedPostData.content,
 				nid: `uid:${socket.uid}:pid:${data.pid}:reaction:${data.reaction}`,
+				mergeId: `${POST_MERGE_ID}:${data.pid}:${data.reaction}`,
+				reaction: data.reaction,
+				topicTitle: topicTitle,
 				pid: data.pid,
 				tid: data.tid,
 				from: socket.uid,
@@ -439,7 +593,7 @@ SocketPlugins.reactions = {
 
 		const [settings, postFields, hasReacted, reactionReputation] = await Promise.all([
 			loadPluginConfig(),
-			posts.getPostFields(data.pid, ['tid', 'deleted']),
+			posts.getPostFields(data.pid, ['tid', 'uid', 'deleted']),
 			db.isSetMember(`pid:${data.pid}:reaction:${data.reaction}`, socket.uid),
 			getReactionReputation(data.reaction),
 		]);
@@ -458,13 +612,17 @@ SocketPlugins.reactions = {
 
 		if (hasReacted) {
 			await db.setRemove(`pid:${data.pid}:reaction:${data.reaction}`, socket.uid);
+			await rescindReactionNotification(
+				`uid:${socket.uid}:pid:${data.pid}:reaction:${data.reaction}`,
+				settings.deleteNotificationOnRemove
+			);
 		}
 
 		const reactionCount = await db.setCount(`pid:${data.pid}:reaction:${data.reaction}`);
 		if (reactionCount === 0) {
 			await db.setRemove(`pid:${data.pid}:reactions`, data.reaction);
 		}
-		if (hasReacted && reactionReputation > 0) {
+		if (hasReacted && reactionReputation > 0 && parseInt(postFields.uid, 10) !== parseInt(socket.uid, 10)) {
 			await giveOwnerReactionReputation(-reactionReputation, data.pid);
 		}
 
@@ -539,6 +697,9 @@ SocketPlugins.reactions = {
 				bodyLong: parsedMessage,
 				roomIcon: icon,
 				nid: `uid:${socket.uid}:mid:${data.mid}:reaction:${data.reaction}`,
+				mergeId: `${MESSAGE_MERGE_ID}:${data.mid}:${data.reaction}`,
+				reaction: data.reaction,
+				roomName: roomName,
 				mid: data.mid,
 				roomId: roomId,
 				from: socket.uid,
@@ -574,6 +735,10 @@ SocketPlugins.reactions = {
 		data.roomId = roomId;
 		if (hasReacted) {
 			await db.setRemove(`mid:${data.mid}:reaction:${data.reaction}`, socket.uid);
+			await rescindReactionNotification(
+				`uid:${socket.uid}:mid:${data.mid}:reaction:${data.reaction}`,
+				settings.deleteNotificationOnRemove
+			);
 		}
 
 		const reactionCount = await db.setCount(`mid:${data.mid}:reaction:${data.reaction}`);
@@ -584,27 +749,7 @@ SocketPlugins.reactions = {
 		await sendMessageEvent(data, 'event:reactions.removeMessageReaction');
 	},
 	getReactionUsernames: async function (socket, data) {
-		if (!socket.uid) {
-			throw new Error('[[error:not-logged-in]]');
-		}
-		if (!nameToEmoji(data.reaction)) {
-			throw new Error('[[reactions:error.invalid-reaction]]');
-		}
-		let set;
-		if (data.type === 'post') {
-			if (!await privileges.posts.can('topics:read', data.pid, socket.uid)) {
-				throw new Error('[[error:not-allowed]]');
-			}
-			set = `pid:${data.pid}:reaction:${data.reaction}`;
-		} else if (data.type === 'message') {
-			const roomId = await messaging.getMessageField(data.mid, 'roomId');
-			if (!await messaging.canViewMessage(data.mid, roomId, socket.uid)) {
-				throw new Error('[[error:not-allowed]]');
-			}
-			set = `mid:${data.mid}:reaction:${data.reaction}`;
-		} else {
-			throw new Error('[[error:invalid-data]]');
-		}
+		const set = await getReactionSetKey(socket, data);
 		let uids = await db.getSetMembers(set);
 		const cutoff = 6;
 
@@ -619,6 +764,18 @@ SocketPlugins.reactions = {
 			cutoff: cutoff,
 			otherCount,
 			usernames,
+		};
+	},
+	getReactionUsers: async function (socket, data) {
+		const set = await getReactionSetKey(socket, data);
+		const uids = await db.getSetMembers(set);
+		const users = await user.getUsersFields(
+			uids.slice(0, MAX_USERS_IN_FULL_LIST),
+			['uid', 'username', 'userslug', 'picture', 'icon:text', 'icon:bgColor'],
+		);
+		return {
+			total: uids.length,
+			users: users.filter(u => u && parseInt(u.uid, 10) > 0),
 		};
 	},
 };

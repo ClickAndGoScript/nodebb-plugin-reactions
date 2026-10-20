@@ -37,6 +37,35 @@
 	}
 }
 
+// Narrow screens: keep the "add reaction" button in the actions row (next to reply / quote / votes)
+// and move only the reaction chips to their own row below it.
+// `display: contents` lets the chips and the button become direct items of the actions row,
+// so they can be ordered independently; the chips wrap onto further rows only when they run out of space.
+@media (max-width: 767.98px) {
+	// Harmony's footer rows use `flex-wrap-reverse` (a !important utility class), which stacks wrapped
+	// rows ABOVE the first one. Force a normal wrap so the chips row lands below the buttons.
+	:has(> .reactions[component="post/reactions"]) {
+		flex-wrap: wrap !important;
+	}
+
+	.reactions[component="post/reactions"] {
+		display: contents;
+
+		> .reaction {
+			order: 5;
+			margin: 0;
+		}
+
+		// row break between the actions row and the chips (only when there is at least one chip)
+		&:has(> .reaction)::after {
+			content: "";
+			order: 4;
+			flex: 0 0 100%;
+			height: 0;
+		}
+	}
+}
+
 // Touch devices (no hover): the emoji image must not be the long-press target,
 // otherwise the browser opens its "image options" menu instead of our users popup.
 @media (pointer: coarse) {

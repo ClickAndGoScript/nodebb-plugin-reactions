@@ -57,13 +57,6 @@
 							{{tx("reactions:settings.delete-notification-on-remove-help")}}
 						</p>
 					</div>
-					<div class="form-check form-switch mb-3">
-						<input id="deleteNotificationOnUnvote" name="deleteNotificationOnUnvote" type="checkbox" class="form-check-input">
-						<label for="deleteNotificationOnUnvote" class="form-check-label">{{tx("reactions:settings.delete-notification-on-unvote")}}</label>
-						<p class="form-text">
-							{{tx("reactions:settings.delete-notification-on-unvote-help")}}
-						</p>
-					</div>
 				</div>
 
 				<div class="mb-3">

@@ -108,9 +108,6 @@ ReactionsPlugin.filterSettingsGet = async function (hookData) {
 		if (!values.hasOwnProperty('deleteNotificationOnRemove')) {
 			values.deleteNotificationOnRemove = 'on';
 		}
-		if (!values.hasOwnProperty('deleteNotificationOnUnvote')) {
-			values.deleteNotificationOnUnvote = 'on';
-		}
 	}
 	return hookData;
 };
@@ -174,6 +171,27 @@ ReactionsPlugin.mergeReactionNotifications = async function (data) {
 	return data;
 };
 
+// "Delete the notification when the built-in upvote is removed" lives in the forum settings
+// (Settings > Reputation & Flags), stored as the config key below. Falls back to the old plugin
+// setting when the forum setting was never saved. Default: on.
+const UNVOTE_CONFIG_KEY = 'reactions:deleteNotificationOnUnvote';
+
+function isUnvoteDeletionEnabled(pluginSettings) {
+	const value = meta.config && meta.config[UNVOTE_CONFIG_KEY];
+	if (value === undefined || value === null || value === '') {
+		return pluginSettings.deleteNotificationOnUnvote;
+	}
+	return !(value === 0 || value === '0' || value === false || value === 'false' || value === 'off');
+}
+
+// Read notifications are never deleted, only unread ones.
+async function isNotificationRead(nid, uid) {
+	if (!uid) {
+		return false;
+	}
+	return await db.isSortedSetMember(`uid:${uid}:notifications:read`, nid);
+}
+
 // The forum's built-in upvote ("like", not our emoji reactions): when the voter takes the upvote back
 // (or switches it to a downvote), NodeBB core fires action:post.unvote but keeps the notification.
 // Core's notification id for it is `upvote:post:<pid>:uid:<voter>`.
@@ -183,10 +201,16 @@ ReactionsPlugin.onUnvote = async function (data) {
 			return;
 		}
 		const settings = await loadPluginConfig();
-		if (!settings.deleteNotificationOnUnvote) {
+		if (!isUnvoteDeletionEnabled(settings)) {
 			return;
 		}
-		await notifications.rescind(`upvote:post:${data.pid}:uid:${data.uid}`);
+		const nid = `upvote:post:${data.pid}:uid:${data.uid}`;
+		const ownerUid = await posts.getPostField(data.pid, 'uid');
+		// a notification the author already read is never deleted
+		if (await isNotificationRead(nid, ownerUid)) {
+			return;
+		}
+		await notifications.rescind(nid);
 	} catch (e) {
 		console.error(e);
 	}
@@ -457,11 +481,15 @@ async function giveOwnerReactionReputation(reactionReputation, pid) {
 
 // When a user takes back a reaction, the notification that was sent to the author is deleted too.
 // Failing to delete it must never make removing the reaction itself fail.
-async function rescindReactionNotification(nid, enabled = true) {
+async function rescindReactionNotification(nid, enabled = true, recipientUid = 0) {
 	if (!enabled) {
 		return;
 	}
 	try {
+		// a notification the author already read is never deleted
+		if (await isNotificationRead(nid, recipientUid)) {
+			return;
+		}
 		await notifications.rescind(nid);
 	} catch (e) {
 		console.error(e);
@@ -614,7 +642,8 @@ SocketPlugins.reactions = {
 			await db.setRemove(`pid:${data.pid}:reaction:${data.reaction}`, socket.uid);
 			await rescindReactionNotification(
 				`uid:${socket.uid}:pid:${data.pid}:reaction:${data.reaction}`,
-				settings.deleteNotificationOnRemove
+				settings.deleteNotificationOnRemove,
+				postFields.uid
 			);
 		}
 
@@ -720,14 +749,15 @@ SocketPlugins.reactions = {
 			throw new Error('[[reactions:error.invalid-reaction]]');
 		}
 
-		const [settings, roomId, hasReacted] = await Promise.all([
+		const [settings, msgFields, hasReacted] = await Promise.all([
 			loadPluginConfig(),
-			messaging.getMessageField(data.mid, 'roomId'),
+			messaging.getMessageFields(data.mid, ['roomId', 'fromuid']),
 			db.isSetMember(`mid:${data.mid}:reaction:${data.reaction}`, socket.uid),
 		]);
 		if (!settings.enableMessageReactions) {
 			throw new Error('[[error:message-reactions-disabled]]');
 		}
+		const { roomId } = msgFields || {};
 		if (!roomId) {
 			throw new Error('[[error:no-message]]');
 		}
@@ -737,7 +767,8 @@ SocketPlugins.reactions = {
 			await db.setRemove(`mid:${data.mid}:reaction:${data.reaction}`, socket.uid);
 			await rescindReactionNotification(
 				`uid:${socket.uid}:mid:${data.mid}:reaction:${data.reaction}`,
-				settings.deleteNotificationOnRemove
+				settings.deleteNotificationOnRemove,
+				msgFields.fromuid
 			);
 		}
 

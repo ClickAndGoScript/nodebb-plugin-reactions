@@ -12,6 +12,9 @@
     "scripts": [
         "public/client.js"
     ],
+    "acpScripts": [
+        "public/acp-reputation.js"
+    ],
     "modules": {
         "../admin/plugins/reactions.js": "./public/admin.js"
     },

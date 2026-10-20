@@ -241,7 +241,12 @@ $(document).ready(function () {
 			async function createTooltip(data) {
 				const el = mouseOverReactionEl;
 				disposeTooltip(el);
-				let usernames = data.usernames.filter(name => name !== '[[global:former_user]]');
+				// Each name is wrapped in Unicode directional isolates (FSI … PDI), so names in different
+				// scripts keep their order: in a right-to-left forum "נוחעם FM, tintin" was shown as
+				// "FM, tintin נוחעם". Characters, not <bdi>, because the translator escapes HTML in
+				// its arguments (topic:users-and-others).
+				let usernames = data.usernames.filter(name => name !== '[[global:former_user]]')
+					.map(name => `\u2068${name}\u2069`);
 				if (!usernames.length) {
 					return;
 				}

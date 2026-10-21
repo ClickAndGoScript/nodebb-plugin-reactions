@@ -22,6 +22,13 @@
 							{{tx("reactions:settings.max-reactions-per-user-per-post-help")}}
 						</p>
 					</div>
+					<div class="form-check form-switch mb-3">
+						<input id="allowSelfReactions" name="allowSelfReactions" type="checkbox" class="form-check-input">
+						<label for="allowSelfReactions" class="form-check-label">{{tx("reactions:settings.allow-self-reactions")}}</label>
+						<p class="form-text">
+							{{tx("reactions:settings.allow-self-reactions-help")}}
+						</p>
+					</div>
 					<hr/>
 					<div class="form-check form-switch mb-3">
 						<input id="enableMessageReactions" name="enableMessageReactions" type="checkbox" class="form-check-input">
@@ -37,6 +44,17 @@
 						<input type="number" min="0" class="form-control" id="maximumReactionsPerUserPerMessage" name="maximumReactionsPerUserPerMessage">
 						<p class="form-text">
 							{{tx("reactions:settings.max-reactions-per-user-per-message-help")}}
+						</p>
+					</div>
+				</div>
+
+				<div class="mb-3">
+					<h5 class="fw-bold tracking-tight settings-header">{{tx("reactions:settings.notifications-title")}}</h5>
+					<div class="form-check form-switch mb-3">
+						<input id="deleteNotificationOnRemove" name="deleteNotificationOnRemove" type="checkbox" class="form-check-input">
+						<label for="deleteNotificationOnRemove" class="form-check-label">{{tx("reactions:settings.delete-notification-on-remove")}}</label>
+						<p class="form-text">
+							{{tx("reactions:settings.delete-notification-on-remove-help")}}
 						</p>
 					</div>
 				</div>

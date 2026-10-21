@@ -12,6 +12,9 @@
     "scripts": [
         "public/client.js"
     ],
+    "acpScripts": [
+        "public/acp-reputation.js"
+    ],
     "modules": {
         "../admin/plugins/reactions.js": "./public/admin.js"
     },
@@ -24,6 +27,9 @@
         { "hook": "filter:messaging.getMessages", "method": "getMessageReactions" },
         { "hook": "filter:post.get", "method": "onReply" },
         { "hook": "action:posts.purge", "method": "deleteReactions" },
+        { "hook": "filter:notifications.merge", "method": "mergeReactionNotifications" },
+        { "hook": "filter:user.notifications.getNotifications", "method": "renderNotificationEmojis" },
+        { "hook": "action:post.unvote", "method": "onUnvote" },
         { "hook": "filter:notifications.addFilters", "method": "addNotificationFilters" },
         { "hook": "filter:user.notificationTypes", "method": "notificationTypes" }
     ]

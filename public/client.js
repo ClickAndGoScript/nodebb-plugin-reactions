@@ -484,7 +484,9 @@ $(document).ready(function () {
 					const found = emoji.table[name];
 					if (!found) return;
 					const $btn = $('<button type="button" class="reactions-allowed-item" tabindex="0"></button>');
-					$btn.attr('title', name);
+					// nodebb-plugin-emoji with localized names (emoji.localizedName): "<local name> · <name>"
+					const local = typeof emoji.localizedName === 'function' ? emoji.localizedName(found) : '';
+					$btn.attr('title', local ? `${local} · ${name}` : name);
 					$btn.attr('data-reaction', name);
 					$btn.html(emoji.buildEmoji(found));
 					$btn.on('click', function (e) {

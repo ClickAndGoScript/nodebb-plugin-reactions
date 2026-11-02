@@ -3,16 +3,24 @@
 $(document).ready(function () {
 	setupReactions();
 	let alerts;
+	let components;
 	let mouseOverReactionEl;
 	let tooltipTimeoutId = 0;
 	function setupReactions() {
 		createReactionTooltips();
-		require(['hooks', 'alerts'], function (hooks, _alerts) {
+		require(['hooks', 'alerts', 'components'], function (hooks, _alerts, _components) {
 			alerts = _alerts;
+			components = _components;
+			setupLifecycleSockets();
 			hooks.on('action:ajaxify.end', function () {
 				if (ajaxify.data.template.topic) {
 					setupPostReactions();
+					hideOwnPostReactionButtons();
 				}
+			});
+			// posts that are loaded dynamically (infinite scroll, new replies)
+			hooks.on('action:posts.loaded', function () {
+				hideOwnPostReactionButtons();
 			});
 			// switchChat uses action:chat.loaded and not action:ajaxify.end
 			hooks.on('action:chat.loaded', function (container) {
@@ -23,32 +31,88 @@ $(document).ready(function () {
 				}
 			});
 		});
+	}
 
+	function setupLifecycleSockets() {
 		socket.on('event:post_deleted', function (data) {
-			$('[component="post/reaction/add"][data-pid="' + data.pid + '"]').addClass('hidden');
+			components.get('post', 'pid', data.pid).find('[component="post/reaction/add"]').addClass('hidden');
 		});
 
 		socket.on('event:post_restored', function (data) {
-			$('[component="post/reaction/add"][data-pid="' + data.pid + '"]').removeClass('hidden');
+			components.get('post', 'pid', data.pid).find('[component="post/reaction/add"]').removeClass('hidden');
 		});
 
 		socket.on('event:chats.delete', function (mid) {
-			$('[component="message/reactions"][data-mid="' + mid + '"]').addClass('hidden');
+			components.get('chat/message', mid).find('[component="message/reactions"]').addClass('hidden');
 		});
 
 		socket.on('event:chats.restore', function (msg) {
-			$('[component="message/reactions"][data-mid="' + msg.mid + '"]').removeClass('hidden');
+			components.get('chat/message', msg.mid).find('[component="message/reactions"]').removeClass('hidden');
+		});
+	}
+
+	function isOwnPost(el) {
+		if (!app.user || !app.user.uid || config.allowSelfReactions) {
+			return false;
+		}
+		const postUid = $(el).closest('[component="post"]').attr('data-uid');
+		return parseInt(postUid, 10) === parseInt(app.user.uid, 10);
+	}
+
+	// the post owner can't add reactions to their own post (enforced on the server too)
+	function hideOwnPostReactionButtons() {
+		components.get('post/reaction/add').each(function () {
+			if (isOwnPost(this)) {
+				$(this).addClass('own-post');
+			}
+		});
+	}
+
+	// Opens a dialog with everyone who used this reaction (avatars + links to profiles)
+	function openAllUsersModal($el) {
+		const pid = $el.attr('data-pid');
+		const mid = $el.attr('data-mid');
+		const reaction = $el.attr('data-reaction');
+		const type = pid ? 'post' : 'message';
+		socket.emit('plugins.reactions.getReactionUsers', {
+			type: type,
+			pid: pid,
+			mid: mid,
+			reaction: reaction,
+		}).then(function (result) {
+			require(['modals', 'benchpress'], async function (modals, Benchpress) {
+				const html = await Benchpress.render('partials/reactions/users-list', result);
+				const dialog = await modals.dialog({
+					title: '[[reactions:users-who-reacted]]',
+					message: html,
+					className: 'reaction-users-modal',
+					show: true,
+					onEscape: true,
+					backdrop: true,
+				});
+
+				dialog.on('click', function () {
+					dialog.modal('hide');
+				});
+			});
+		}).catch(function (err) {
+			if (alerts) {
+				alerts.error(err.message);
+			}
 		});
 	}
 
 	function setupPostReactions() {
 		setupPostReactionSockets();
 
-		$('[component="topic"]').on('click', '[component="post/reaction"]', function () {
+		components.get('topic').off('click.reactions').on('click.reactions', '[component="post/reaction"]', function () {
 			const reactionElement = $(this);
 			const pid = reactionElement.attr('data-pid');
 			const reaction = reactionElement.attr('data-reaction');
 			const reacted = reactionElement.hasClass('reacted');
+			if (!reacted && isOwnPost(reactionElement)) {
+				return alerts.error('[[reactions:error.cannot-react-own-post]]');
+			}
 			const event = 'plugins.reactions.' + (reacted ? 'removePostReaction' : 'addPostReaction');
 			socket.emit(event, {
 				pid: pid,
@@ -60,35 +124,42 @@ $(document).ready(function () {
 			});
 		});
 
-		$('[component="topic"]').on('click', '[component="post/reaction/add"]', function () {
-			const reactionAddEl = $(this);
-			const pid = reactionAddEl.attr('data-pid');
-			const allowed = Array.isArray(config.allowedPostReactions) ? config.allowedPostReactions : [];
+		components.get('topic').off('click.reactionsAdd').on(
+			'click.reactionsAdd', '[component="post/reaction/add"]', function () {
+				const reactionAddEl = $(this);
+				if (isOwnPost(reactionAddEl)) {
+					return;
+				}
+				const pid = reactionAddEl.attr('data-pid');
+				const allowed = Array.isArray(config.allowedPostReactions) ? config.allowedPostReactions : [];
 
-			function applyReaction(name) {
-				socket.emit('plugins.reactions.addPostReaction', {
-					pid: pid,
-					reaction: name,
-				}, function (err) {
-					if (err) {
-						alerts.error(err.message);
-						throw err;
-					}
-					$('[component="post/reaction"][data-pid="' + pid + '"][data-reaction="' + name + '"]').addClass('reacted');
-				});
-			}
-
-			if (allowed.length > 0) {
-				openAllowedReactionsPicker(reactionAddEl, allowed, applyReaction);
-			} else {
-				require(['emoji-dialog'], function (emojiDialog) {
-					emojiDialog.toggle(reactionAddEl[0], function (_, name, dialog) {
-						emojiDialog.dialogActions.close(dialog);
-						applyReaction(name);
+				function applyReaction(name) {
+					socket.emit('plugins.reactions.addPostReaction', {
+						pid: pid,
+						reaction: name,
+					}, function (err) {
+						if (err) {
+							alerts.error(err.message);
+							throw err;
+						}
+						components.get('post', 'pid', pid)
+							.find('[component="post/reaction"][data-reaction="' + name + '"]')
+							.addClass('reacted');
 					});
-				});
+				}
+
+				if (allowed.length > 0) {
+					openAllowedReactionsPicker(reactionAddEl, allowed, applyReaction);
+				} else {
+					require(['emoji-dialog'], function (emojiDialog) {
+						emojiDialog.toggle(reactionAddEl[0], function (_, name, dialog) {
+							emojiDialog.dialogActions.close(dialog);
+							applyReaction(name);
+						});
+					});
+				}
 			}
-		});
+		);
 	}
 
 	function setupMessageReactions(container) {
@@ -127,7 +198,9 @@ $(document).ready(function () {
 							return alerts.error(err.message);
 						}
 
-						$('[component="message/reaction"][data-mid="' + mid + '"][data-reaction="' + name + '"]').addClass('reacted');
+						components.get('chat/message', mid)
+							.find('[component="message/reaction"][data-reaction="' + name + '"]')
+							.addClass('reacted');
 					});
 				});
 			});
@@ -157,9 +230,12 @@ $(document).ready(function () {
 	function updatePostReactionCount(data, type) {
 		const maxReactionsReached = config.maximumReactions > 0 &&
 			parseInt(data.totalReactions, 10) >= config.maximumReactions;
-		$('[component="post/reaction/add"][data-pid="' + data.pid + '"]').toggleClass('max-reactions', maxReactionsReached);
+		components.get('post', 'pid', data.pid)
+			.find('[component="post/reaction/add"]')
+			.toggleClass('max-reactions', maxReactionsReached);
 
-		const reactionEl = $(`[component="post/reaction"][data-pid="${data.pid}"][data-reaction="${data.reaction}"]`);
+		const postEl = components.get('post', 'pid', data.pid);
+		const reactionEl = postEl.find(`[component="post/reaction"][data-reaction="${data.reaction}"]`);
 
 		if (parseInt(data.reactionCount, 10) === 0) {
 			reactionEl.tooltip('dispose');
@@ -175,7 +251,7 @@ $(document).ready(function () {
 				reacted: isSelf && type === 'add',
 				reactionImage: data.reactionImage,
 			}, function (html) {
-				$('[component="post/reactions"][data-pid="' + data.pid + '"]').prepend(html);
+				postEl.find('[component="post/reactions"]').prepend(html);
 			});
 		} else {
 			reactionEl.find('.reaction-emoji-count').attr('data-count', data.reactionCount);
@@ -190,9 +266,9 @@ $(document).ready(function () {
 	function updateMessageReactionCount(data, type) {
 		const maxReactionsReached = config.maximumReactionsPerMessage > 0 &&
 			parseInt(data.totalReactions, 10) >= config.maximumReactionsPerMessage;
-		$('[component="message/reaction/add"][data-mid="' + data.mid + '"]').toggleClass('max-reactions', maxReactionsReached);
-
-		const reactionEl = $(`[component="message/reaction"][data-mid="${data.mid}"][data-reaction="${data.reaction}"]`);
+		const messageEl = components.get('chat/message', data.mid);
+		messageEl.find('[component="message/reaction/add"]').toggleClass('max-reactions', maxReactionsReached);
+		const reactionEl = messageEl.find(`[component="message/reaction"][data-reaction="${data.reaction}"]`);
 
 		if (parseInt(data.reactionCount, 10) === 0) {
 			reactionEl.tooltip('dispose');
@@ -208,7 +284,7 @@ $(document).ready(function () {
 				reactionImage: data.reactionImage,
 			}, function (html) {
 				require(['forum/chats/messages'], function (messages) {
-					const reactionEl = $('[component="message/reactions"][data-mid="' + data.mid + '"]');
+					const reactionEl = messageEl.find('[component="message/reactions"]');
 					const chatContentEl = reactionEl.parents('[component="chat/message/content"]');
 					const isAtBottom = messages.isAtBottom(chatContentEl);
 					reactionEl.append(html);
@@ -241,29 +317,19 @@ $(document).ready(function () {
 			async function createTooltip(data) {
 				const el = mouseOverReactionEl;
 				disposeTooltip(el);
-				// Each name is wrapped in Unicode directional isolates (FSI … PDI), so names in different
-				// scripts keep their order: in a right-to-left forum "נוחעם FM, tintin" was shown as
-				// "FM, tintin נוחעם". Characters, not <bdi>, because the translator escapes HTML in
-				// its arguments (topic:users-and-others).
-				let usernames = data.usernames.filter(name => name !== '[[global:former_user]]')
-					.map(name => `\u2068${name}\u2069`);
+				const usernames = data.usernames.filter(name => name !== '[[global:former-user]]');
 				if (!usernames.length) {
 					return;
 				}
-				if (usernames.length + data.otherCount > data.cutoff) {
-					usernames = await translator.translate(
-						translator.compile('topic:users-and-others', usernames.join(', '), data.otherCount),
-					);
-				} else {
-					usernames = usernames.join(', ');
-				}
+				const usersList = usernames.join(', ');
+				const title = usernames.length + data.otherCount > data.cutoff ?
+					await translator.translateKey('topic:users-and-others', [usersList, data.otherCount]) :
+					utils.escapeHTML(usersList);
 
-				el.attr('title', usernames);
+				el.attr('title', title);
 				(new bootstrap.Tooltip(el, {
 					container: '#content',
 					html: true,
-					placement: 'top',
-					animation: false,
 				})).show();
 			}
 			function clearTooltipTimeout() {
@@ -308,7 +374,94 @@ $(document).ready(function () {
 					mouseOverReactionEl = null;
 					disposeTooltip($(this));
 				});
+				// right click = full list of users
+				$('body').on('contextmenu', '.reaction', function (e) {
+					e.preventDefault();
+					clearTooltipTimeout();
+					disposeTooltip($(this));
+					openAllUsersModal($(this));
+				});
+			} else {
+				setupLongPressUsersModal();
 			}
+		});
+	}
+
+	// NodeBB has no shared long-press helper. Keep gesture detection small and hand the UI
+	// off to its standard modal component, as core does for full voter lists.
+	function setupLongPressUsersModal() {
+		const LONG_PRESS_MS = 450;
+		const MOVE_TOLERANCE_PX = 10;
+		let longPressTimeoutId = 0;
+		let longPressStart = null;
+		let lastTouchStartTime = 0;
+		let suppressNextClick = false;
+		let longPressHandled = false;
+
+		function clearLongPressTimeout() {
+			if (longPressTimeoutId) {
+				clearTimeout(longPressTimeoutId);
+				longPressTimeoutId = 0;
+			}
+			longPressStart = null;
+		}
+
+		function showUsersModal($el) {
+			if (longPressHandled) {
+				return;
+			}
+			longPressHandled = true;
+			suppressNextClick = true;
+			clearLongPressTimeout();
+			openAllUsersModal($el);
+		}
+
+		document.addEventListener('touchstart', function () {
+			lastTouchStartTime = Date.now();
+			suppressNextClick = false;
+			longPressHandled = false;
+		}, true);
+
+		document.addEventListener('click', function (e) {
+			if (suppressNextClick) {
+				suppressNextClick = false;
+				if (e.target.closest && e.target.closest('.reaction')) {
+					e.preventDefault();
+					e.stopPropagation();
+				}
+			}
+		}, true);
+
+		$('body').on('touchstart', '.reaction', function (e) {
+			const t = e.originalEvent.touches[0];
+			clearLongPressTimeout();
+			if (!t || e.originalEvent.touches.length > 1) {
+				return;
+			}
+			const $el = $(this);
+			longPressStart = { x: t.clientX, y: t.clientY };
+			longPressTimeoutId = setTimeout(function () {
+				longPressTimeoutId = 0;
+				showUsersModal($el);
+			}, LONG_PRESS_MS);
+		});
+		$('body').on('touchmove', '.reaction', function (e) {
+			const t = e.originalEvent.touches[0];
+			if (longPressStart && t &&
+				(Math.abs(t.clientX - longPressStart.x) > MOVE_TOLERANCE_PX ||
+				Math.abs(t.clientY - longPressStart.y) > MOVE_TOLERANCE_PX)) {
+				clearLongPressTimeout();
+			}
+		});
+		$('body').on('touchend touchcancel', '.reaction', clearLongPressTimeout);
+
+		$('body').on('contextmenu', '.reaction', function (e) {
+			if (Date.now() - lastTouchStartTime > 1500) {
+				return;
+			}
+			e.preventDefault();
+			clearLongPressTimeout();
+			showUsersModal($(this));
 		});
 	}
 

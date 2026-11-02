@@ -28,8 +28,55 @@
 		}
 	}
 	.reaction-add {
-		&.max-reactions {
+		flex: 0 0 auto;
+		white-space: nowrap;
+		&.max-reactions,
+		&.own-post {
 			display: none !important;
+		}
+	}
+}
+// Narrow screens: keep the "add reaction" button in the actions row (next to reply / quote / votes)
+// and move only the reaction chips to their own row below it.
+// `display: contents` lets the chips and the button become direct items of the actions row,
+// so they can be ordered independently; the chips wrap onto further rows only when they run out of space.
+@media (max-width: 767.98px) {
+	// Harmony's footer rows use `flex-wrap-reverse` (a !important utility class), which stacks wrapped
+	// rows ABOVE the first one. Force a normal wrap so the chips row lands below the buttons.
+	:has(> .reactions[component="post/reactions"]) {
+		flex-wrap: wrap !important;
+	}
+
+	.reactions[component="post/reactions"] {
+		display: contents;
+
+		> .reaction {
+			order: 5;
+			margin: 0;
+		}
+
+		// row break between the actions row and the chips (only when there is at least one chip)
+		&:has(> .reaction)::after {
+			content: "";
+			order: 4;
+			flex: 0 0 100%;
+			height: 0;
+		}
+	}
+}
+
+// Touch devices (no hover): keep the reaction chip as the long-press target instead of its image.
+@media (pointer: coarse) {
+	.reactions .reaction {
+		-webkit-touch-callout: none;
+		-webkit-user-select: none;
+		user-select: none;
+		-webkit-tap-highlight-color: transparent;
+
+		img,
+		.emoji {
+			pointer-events: none;
+			-webkit-user-drag: none;
 		}
 	}
 }

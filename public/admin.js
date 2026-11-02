@@ -68,8 +68,8 @@ define('admin/plugins/reactions', [
 				alerts.alert({
 					type: 'success',
 					alert_id: 'reactions-saved',
-					title: 'Settings Saved',
-					message: 'Reactions plugin settings saved',
+					title: '[[reactions:settings.saved-title]]',
+					message: '[[reactions:settings.saved-message]]',
 					timeout: 3000,
 				});
 			});

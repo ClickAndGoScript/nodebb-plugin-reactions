@@ -8,6 +8,15 @@ Install via one-click activation in the Admin Control Panel or run the following
 
     npm i git+https://github.com/ClickAndGoScript/nodebb-plugin-reactions
 
+# Behavior
+
+- Post authors can't react to their own posts (can be allowed in the ACP: "Allow users to react to their own posts"). Reacting to your own post never gives reaction reputation.
+- Hover (desktop) on a reaction shows who reacted. Right-click (desktop) or long-press (touch devices) opens the full list of users.
+- Several users reacting with the same emoji to the same post or chat message are merged into a single notification. Different emojis on the same post keep separate notifications.
+- Reaction notifications show the emoji as an image (not the `:name:` text).
+- When a user removes their reaction, the notification that was sent to the author for it is deleted. Controlled by the ACP switch "Delete the notification when the reaction is removed" (block "Notifications", applies to posts and chats; on by default).
+- A reaction notification that the author has already read is never deleted.
+
 # Emojis in Topic Titles and Notifications
 
 In the admin settings of nodebb-plugin-emoji, turn on "Parse emojis in topic titles" to see emojis as images in topic titles and notifications.

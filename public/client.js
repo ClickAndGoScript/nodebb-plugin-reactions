@@ -3,12 +3,15 @@
 $(document).ready(function () {
 	setupReactions();
 	let alerts;
+	let components;
 	let mouseOverReactionEl;
 	let tooltipTimeoutId = 0;
 	function setupReactions() {
 		createReactionTooltips();
-		require(['hooks', 'alerts'], function (hooks, _alerts) {
+		require(['hooks', 'alerts', 'components'], function (hooks, _alerts, _components) {
 			alerts = _alerts;
+			components = _components;
+			setupLifecycleSockets();
 			hooks.on('action:ajaxify.end', function () {
 				if (ajaxify.data.template.topic) {
 					setupPostReactions();
@@ -28,21 +31,23 @@ $(document).ready(function () {
 				}
 			});
 		});
+	}
 
+	function setupLifecycleSockets() {
 		socket.on('event:post_deleted', function (data) {
-			$('[component="post/reaction/add"][data-pid="' + data.pid + '"]').addClass('hidden');
+			components.get('post', 'pid', data.pid).find('[component="post/reaction/add"]').addClass('hidden');
 		});
 
 		socket.on('event:post_restored', function (data) {
-			$('[component="post/reaction/add"][data-pid="' + data.pid + '"]').removeClass('hidden');
+			components.get('post', 'pid', data.pid).find('[component="post/reaction/add"]').removeClass('hidden');
 		});
 
 		socket.on('event:chats.delete', function (mid) {
-			$('[component="message/reactions"][data-mid="' + mid + '"]').addClass('hidden');
+			components.get('chat/message', mid).find('[component="message/reactions"]').addClass('hidden');
 		});
 
 		socket.on('event:chats.restore', function (msg) {
-			$('[component="message/reactions"][data-mid="' + msg.mid + '"]').removeClass('hidden');
+			components.get('chat/message', msg.mid).find('[component="message/reactions"]').removeClass('hidden');
 		});
 	}
 
@@ -56,7 +61,7 @@ $(document).ready(function () {
 
 	// the post owner can't add reactions to their own post (enforced on the server too)
 	function hideOwnPostReactionButtons() {
-		$('[component="post/reaction/add"]').each(function () {
+		components.get('post/reaction/add').each(function () {
 			if (isOwnPost(this)) {
 				$(this).addClass('own-post');
 			}
@@ -75,21 +80,19 @@ $(document).ready(function () {
 			mid: mid,
 			reaction: reaction,
 		}).then(function (result) {
-			app.parseAndTranslate('partials/reactions/users-list', {
-				users: result.users,
-				total: result.total,
-				emojiHtml: $el.find('.emoji').first().prop('outerHTML') || '',
-			}, function (html) {
-				require(['modals'], function (modals) {
-					modals.dialog({
-						title: '[[reactions:users-who-reacted]]',
-						message: html,
-						onEscape: true,
-						backdrop: true,
-						buttons: {
-							close: { label: '[[modules:bootbox.ok]]', className: 'btn-primary' },
-						},
-					});
+			require(['modals', 'benchpress'], async function (modals, Benchpress) {
+				const html = await Benchpress.render('partials/reactions/users-list', result);
+				const dialog = await modals.dialog({
+					title: '[[reactions:users-who-reacted]]',
+					message: html,
+					className: 'reaction-users-modal',
+					show: true,
+					onEscape: true,
+					backdrop: true,
+				});
+
+				dialog.on('click', function () {
+					dialog.modal('hide');
 				});
 			});
 		}).catch(function (err) {
@@ -102,7 +105,7 @@ $(document).ready(function () {
 	function setupPostReactions() {
 		setupPostReactionSockets();
 
-		$('[component="topic"]').off('click.reactions').on('click.reactions', '[component="post/reaction"]', function () {
+		components.get('topic').off('click.reactions').on('click.reactions', '[component="post/reaction"]', function () {
 			const reactionElement = $(this);
 			const pid = reactionElement.attr('data-pid');
 			const reaction = reactionElement.attr('data-reaction');
@@ -121,38 +124,42 @@ $(document).ready(function () {
 			});
 		});
 
-		$('[component="topic"]').off('click.reactionsAdd').on('click.reactionsAdd', '[component="post/reaction/add"]', function () {
-			const reactionAddEl = $(this);
-			if (isOwnPost(reactionAddEl)) {
-				return;
-			}
-			const pid = reactionAddEl.attr('data-pid');
-			const allowed = Array.isArray(config.allowedPostReactions) ? config.allowedPostReactions : [];
+		components.get('topic').off('click.reactionsAdd').on(
+			'click.reactionsAdd', '[component="post/reaction/add"]', function () {
+				const reactionAddEl = $(this);
+				if (isOwnPost(reactionAddEl)) {
+					return;
+				}
+				const pid = reactionAddEl.attr('data-pid');
+				const allowed = Array.isArray(config.allowedPostReactions) ? config.allowedPostReactions : [];
 
-			function applyReaction(name) {
-				socket.emit('plugins.reactions.addPostReaction', {
-					pid: pid,
-					reaction: name,
-				}, function (err) {
-					if (err) {
-						alerts.error(err.message);
-						throw err;
-					}
-					$('[component="post/reaction"][data-pid="' + pid + '"][data-reaction="' + name + '"]').addClass('reacted');
-				});
-			}
-
-			if (allowed.length > 0) {
-				openAllowedReactionsPicker(reactionAddEl, allowed, applyReaction);
-			} else {
-				require(['emoji-dialog'], function (emojiDialog) {
-					emojiDialog.toggle(reactionAddEl[0], function (_, name, dialog) {
-						emojiDialog.dialogActions.close(dialog);
-						applyReaction(name);
+				function applyReaction(name) {
+					socket.emit('plugins.reactions.addPostReaction', {
+						pid: pid,
+						reaction: name,
+					}, function (err) {
+						if (err) {
+							alerts.error(err.message);
+							throw err;
+						}
+						components.get('post', 'pid', pid)
+							.find('[component="post/reaction"][data-reaction="' + name + '"]')
+							.addClass('reacted');
 					});
-				});
+				}
+
+				if (allowed.length > 0) {
+					openAllowedReactionsPicker(reactionAddEl, allowed, applyReaction);
+				} else {
+					require(['emoji-dialog'], function (emojiDialog) {
+						emojiDialog.toggle(reactionAddEl[0], function (_, name, dialog) {
+							emojiDialog.dialogActions.close(dialog);
+							applyReaction(name);
+						});
+					});
+				}
 			}
-		});
+		);
 	}
 
 	function setupMessageReactions(container) {
@@ -191,7 +198,9 @@ $(document).ready(function () {
 							return alerts.error(err.message);
 						}
 
-						$('[component="message/reaction"][data-mid="' + mid + '"][data-reaction="' + name + '"]').addClass('reacted');
+						components.get('chat/message', mid)
+							.find('[component="message/reaction"][data-reaction="' + name + '"]')
+							.addClass('reacted');
 					});
 				});
 			});
@@ -221,9 +230,12 @@ $(document).ready(function () {
 	function updatePostReactionCount(data, type) {
 		const maxReactionsReached = config.maximumReactions > 0 &&
 			parseInt(data.totalReactions, 10) >= config.maximumReactions;
-		$('[component="post/reaction/add"][data-pid="' + data.pid + '"]').toggleClass('max-reactions', maxReactionsReached);
+		components.get('post', 'pid', data.pid)
+			.find('[component="post/reaction/add"]')
+			.toggleClass('max-reactions', maxReactionsReached);
 
-		const reactionEl = $(`[component="post/reaction"][data-pid="${data.pid}"][data-reaction="${data.reaction}"]`);
+		const postEl = components.get('post', 'pid', data.pid);
+		const reactionEl = postEl.find(`[component="post/reaction"][data-reaction="${data.reaction}"]`);
 
 		if (parseInt(data.reactionCount, 10) === 0) {
 			reactionEl.tooltip('dispose');
@@ -239,7 +251,7 @@ $(document).ready(function () {
 				reacted: isSelf && type === 'add',
 				reactionImage: data.reactionImage,
 			}, function (html) {
-				$('[component="post/reactions"][data-pid="' + data.pid + '"]').prepend(html);
+				postEl.find('[component="post/reactions"]').prepend(html);
 			});
 		} else {
 			reactionEl.find('.reaction-emoji-count').attr('data-count', data.reactionCount);
@@ -254,9 +266,9 @@ $(document).ready(function () {
 	function updateMessageReactionCount(data, type) {
 		const maxReactionsReached = config.maximumReactionsPerMessage > 0 &&
 			parseInt(data.totalReactions, 10) >= config.maximumReactionsPerMessage;
-		$('[component="message/reaction/add"][data-mid="' + data.mid + '"]').toggleClass('max-reactions', maxReactionsReached);
-
-		const reactionEl = $(`[component="message/reaction"][data-mid="${data.mid}"][data-reaction="${data.reaction}"]`);
+		const messageEl = components.get('chat/message', data.mid);
+		messageEl.find('[component="message/reaction/add"]').toggleClass('max-reactions', maxReactionsReached);
+		const reactionEl = messageEl.find(`[component="message/reaction"][data-reaction="${data.reaction}"]`);
 
 		if (parseInt(data.reactionCount, 10) === 0) {
 			reactionEl.tooltip('dispose');
@@ -272,7 +284,7 @@ $(document).ready(function () {
 				reactionImage: data.reactionImage,
 			}, function (html) {
 				require(['forum/chats/messages'], function (messages) {
-					const reactionEl = $('[component="message/reactions"][data-mid="' + data.mid + '"]');
+					const reactionEl = messageEl.find('[component="message/reactions"]');
 					const chatContentEl = reactionEl.parents('[component="chat/message/content"]');
 					const isAtBottom = messages.isAtBottom(chatContentEl);
 					reactionEl.append(html);
@@ -302,37 +314,22 @@ $(document).ready(function () {
 					}
 				}
 			}
-			async function getUsernamesText(data) {
-				// Each name is wrapped in Unicode directional isolates (FSI … PDI), so names in different
-				// scripts keep their order: in a right-to-left forum "נוחעם FM, tintin" was shown as
-				// "FM, tintin נוחעם". Characters, not <bdi>, because the translator escapes HTML in
-				// its arguments (topic:users-and-others).
-				const usernames = data.usernames.filter(name => name !== '[[global:former_user]]')
-					.map(name => `\u2068${name}\u2069`);
-				if (!usernames.length) {
-					return '';
-				}
-				if (usernames.length + data.otherCount > data.cutoff) {
-					return translator.translate(
-						translator.compile('topic:users-and-others', usernames.join(', '), data.otherCount),
-					);
-				}
-				return usernames.join(', ');
-			}
 			async function createTooltip(data) {
 				const el = mouseOverReactionEl;
 				disposeTooltip(el);
-				const usernames = await getUsernamesText(data);
-				if (!usernames) {
+				const usernames = data.usernames.filter(name => name !== '[[global:former-user]]');
+				if (!usernames.length) {
 					return;
 				}
+				const usersList = usernames.join(', ');
+				const title = usernames.length + data.otherCount > data.cutoff ?
+					await translator.translateKey('topic:users-and-others', [usersList, data.otherCount]) :
+					utils.escapeHTML(usersList);
 
-				el.attr('title', usernames);
+				el.attr('title', title);
 				(new bootstrap.Tooltip(el, {
 					container: '#content',
 					html: true,
-					placement: 'top',
-					animation: false,
 				})).show();
 			}
 			function clearTooltipTimeout() {
@@ -385,31 +382,21 @@ $(document).ready(function () {
 					openAllUsersModal($(this));
 				});
 			} else {
-				setupLongPressUsersPopup(getUsernamesText, translator);
+				setupLongPressUsersModal();
 			}
 		});
 	}
 
-	// Touch devices have no hover, so a long press on a reaction opens a popup with the
-	// users who reacted. It stays open until the user taps somewhere else, so it survives
-	// the browser's own long-press UI (e.g. the "image options" dialog) being opened and closed.
-	function setupLongPressUsersPopup(getUsernamesText, translator) {
+	// NodeBB has no shared long-press helper. Keep gesture detection small and hand the UI
+	// off to its standard modal component, as core does for full voter lists.
+	function setupLongPressUsersModal() {
 		const LONG_PRESS_MS = 450;
 		const MOVE_TOLERANCE_PX = 10;
-		const IGNORE_CLOSE_MS = 350;
-		let usersPopupEl = null;
-		let popupToken = 0;
 		let longPressTimeoutId = 0;
 		let longPressStart = null;
-		let tapStart = null;
 		let lastTouchStartTime = 0;
-		let lastTouchEndTime = 0;
 		let suppressNextClick = false;
-		let popupRequested = false;
-
-		function decodeEntities(str) {
-			return new DOMParser().parseFromString(String(str), 'text/html').documentElement.textContent;
-		}
+		let longPressHandled = false;
 
 		function clearLongPressTimeout() {
 			if (longPressTimeoutId) {
@@ -419,161 +406,22 @@ $(document).ready(function () {
 			longPressStart = null;
 		}
 
-		function closeUsersPopup() {
-			popupToken += 1;
-			popupRequested = false;
-			tapStart = null;
-			if (usersPopupEl) {
-				usersPopupEl.remove();
-				usersPopupEl = null;
+		function showUsersModal($el) {
+			if (longPressHandled) {
+				return;
 			}
-			$(document).off('.reactionsUsersPopup');
-		}
-
-		function positionUsersPopup($popup, $anchor) {
-			const offset = $anchor.offset();
-			const anchorCenter = offset.left + ($anchor.outerWidth() / 2);
-			const popupW = $popup.outerWidth();
-			const popupH = $popup.outerHeight();
-			const winW = $(window).width();
-
-			const left = Math.max(8, Math.min(anchorCenter - (popupW / 2), winW - popupW - 8));
-			let top = offset.top - popupH - 8;
-			const below = top < $(window).scrollTop() + 4;
-			if (below) {
-				top = offset.top + $anchor.outerHeight() + 8;
-			}
-			$popup.toggleClass('below', below);
-			$popup.css({ top: top, left: left });
-			$popup.find('.reactions-users-popup-arrow').css(
-				'left',
-				Math.max(10, Math.min(anchorCenter - left, popupW - 10)) + 'px',
-			);
-		}
-
-		async function showUsersPopup($el) {
-			const pid = $el.attr('data-pid');
-			const mid = $el.attr('data-mid');
-			const reaction = $el.attr('data-reaction');
-			const type = pid ? 'post' : 'message';
-
-			// the finger is still down (or just released): don't let it toggle the reaction
+			longPressHandled = true;
 			suppressNextClick = true;
-			closePopupAndReset();
-			popupRequested = true;
-
-			const token = popupToken;
-			let data;
-			try {
-				data = await socket.emit('plugins.reactions.getReactionUsernames', {
-					type: type,
-					mid: mid,
-					pid: pid,
-					reaction: reaction,
-				});
-			} catch (err) {
-				if (token === popupToken) {
-					popupRequested = false;
-					if (alerts) {
-						alerts.error(err.message);
-					}
-				}
-				return;
-			}
-			if (token !== popupToken) {
-				return;
-			}
-			const text = await getUsernamesText(data);
-			if (token !== popupToken) {
-				return;
-			}
-			if (!text || !$el.closest('body').length) {
-				popupRequested = false;
-				return;
-			}
-
-			const $popup = $(
-				'<div class="reactions-users-popup" role="tooltip">' +
-				'<div class="reactions-users-popup-inner"></div>' +
-				'<div class="reactions-users-popup-arrow"></div>' +
-				'</div>'
-			);
-			$popup.find('.reactions-users-popup-inner').text(decodeEntities(text));
-			if (data.otherCount > 0) {
-				const label = await translator.translate('[[reactions:show-all-users]]');
-				if (token !== popupToken) {
-					return;
-				}
-				$('<a href="#" class="reactions-users-popup-all"></a>').text(label).appendTo(
-					$popup.find('.reactions-users-popup-inner'),
-				);
-				$popup.on('click', '.reactions-users-popup-all', function (e) {
-					e.preventDefault();
-					e.stopPropagation();
-					closePopupAndReset();
-					openAllUsersModal($el);
-				});
-			}
-			$('body').append($popup);
-			positionUsersPopup($popup, $el);
-			usersPopupEl = $popup;
-
-			// Close only on a real tap (not a scroll) elsewhere. Listeners are attached a moment
-			// later so the release of the long press itself can't close the popup.
-			setTimeout(function () {
-				if (token !== popupToken) {
-					return;
-				}
-				tapStart = null;
-				$(document).on('touchstart.reactionsUsersPopup', function (e) {
-					const t = e.originalEvent.touches[0];
-					tapStart = t ? { x: t.clientX, y: t.clientY } : null;
-				});
-				$(document).on('touchend.reactionsUsersPopup', function (e) {
-					if ($(e.target).closest('.reactions-users-popup-all').length) {
-						tapStart = null;
-						return;
-					}
-					const t = e.originalEvent.changedTouches[0];
-					if (tapStart && t &&
-						Math.abs(t.clientX - tapStart.x) < MOVE_TOLERANCE_PX &&
-						Math.abs(t.clientY - tapStart.y) < MOVE_TOLERANCE_PX) {
-						closePopupAndReset();
-					}
-					tapStart = null;
-				});
-				// mouse / emulated mouse events (ignore the ones synthesized right after a touch)
-				$(document).on('mousedown.reactionsUsersPopup', function (e) {
-					if ($(e.target).closest('.reactions-users-popup-all').length) {
-						return;
-					}
-					if (Date.now() - lastTouchEndTime > 700) {
-						closePopupAndReset();
-					}
-				});
-				$(document).on('keydown.reactionsUsersPopup', function (e) {
-					if (e.key === 'Escape') {
-						closePopupAndReset();
-					}
-				});
-			}, IGNORE_CLOSE_MS);
-		}
-
-		function closePopupAndReset() {
 			clearLongPressTimeout();
-			closeUsersPopup();
+			openAllUsersModal($el);
 		}
 
-		// a new touch always starts clean
 		document.addEventListener('touchstart', function () {
 			lastTouchStartTime = Date.now();
 			suppressNextClick = false;
-		}, true);
-		document.addEventListener('touchend', function () {
-			lastTouchEndTime = Date.now();
+			longPressHandled = false;
 		}, true);
 
-		// swallow the click that the end of a long press may produce
 		document.addEventListener('click', function (e) {
 			if (suppressNextClick) {
 				suppressNextClick = false;
@@ -594,7 +442,7 @@ $(document).ready(function () {
 			longPressStart = { x: t.clientX, y: t.clientY };
 			longPressTimeoutId = setTimeout(function () {
 				longPressTimeoutId = 0;
-				showUsersPopup($el);
+				showUsersModal($el);
 			}, LONG_PRESS_MS);
 		});
 		$('body').on('touchmove', '.reaction', function (e) {
@@ -607,17 +455,13 @@ $(document).ready(function () {
 		});
 		$('body').on('touchend touchcancel', '.reaction', clearLongPressTimeout);
 
-		// On Android the long press fires "contextmenu" (the browser's image/link menu).
-		// Treat it as the long-press signal and cancel the native menu where the browser allows it.
 		$('body').on('contextmenu', '.reaction', function (e) {
 			if (Date.now() - lastTouchStartTime > 1500) {
-				return; // a real mouse right-click, leave it alone
+				return;
 			}
 			e.preventDefault();
 			clearLongPressTimeout();
-			if (!popupRequested) {
-				showUsersPopup($(this));
-			}
+			showUsersModal($(this));
 		});
 	}
 

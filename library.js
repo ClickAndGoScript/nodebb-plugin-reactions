@@ -21,7 +21,6 @@ let emojiAliases = null;
 const DEFAULT_MAX_EMOTES = 4;
 const POST_MERGE_ID = 'reactions-post';
 const MESSAGE_MERGE_ID = 'reactions-message';
-const MAX_USERS_IN_FULL_LIST = 200;
 
 function nameToEmoji(name) {
 	if (!emojiTable) {
@@ -90,7 +89,6 @@ async function loadPluginConfig() {
 	settings.allowSelfReactions = settings.allowSelfReactions === 'on';
 	// absent = on (previous behaviour); only an explicit 'off' disables them
 	settings.deleteNotificationOnRemove = settings.deleteNotificationOnRemove !== 'off';
-	settings.deleteNotificationOnUnvote = settings.deleteNotificationOnUnvote !== 'off';
 	settings.allowedPostReactions = Array.isArray(settings['allowed-post-reactions']) ?
 		settings['allowed-post-reactions'].map(r => r && r.reaction).filter(Boolean) : [];
 	return settings;
@@ -119,7 +117,8 @@ ReactionsPlugin.mergeReactionNotifications = async function (data) {
 	if (!data || !Array.isArray(data.notifications)) {
 		return data;
 	}
-	const groups = new Map(); // `${mergeId}::${emoji}` -> notifications (only the same emoji on the same post/message is merged)
+	// `${mergeId}::${emoji}` -> notifications; merge only the same emoji on the same post/message.
+	const groups = new Map();
 	data.notifications.forEach((notif) => {
 		if (notif && notif.type === 'reaction' && typeof notif.mergeId === 'string' &&
 			(notif.mergeId.startsWith(`${POST_MERGE_ID}:`) || notif.mergeId.startsWith(`${MESSAGE_MERGE_ID}:`))) {
@@ -137,9 +136,23 @@ ReactionsPlugin.mergeReactionNotifications = async function (data) {
 			return;
 		}
 		const target = set[0];
-		const names = [...new Set(set.map(n => n.user && n.user.displayname).filter(Boolean))]
-			.map(name => translator.escape(name));
-		if (!names.length) {
+		// Display names are not unique. Identify actors by the notification's `from` uid,
+		// otherwise two different users with the same display name collapse into one.
+		const actors = new Map();
+		for (const notification of set) {
+			const actorId = notification.from || (notification.user && notification.user.uid);
+			const displayname = notification.user && notification.user.displayname;
+			if (!actorId || !displayname) {
+				// Preserve all notifications if actor identity is incomplete; merging them could
+				// silently hide a notification or produce an incorrect actor count.
+				return;
+			}
+			if (!actors.has(String(actorId))) {
+				actors.set(String(actorId), translator.escape(displayname));
+			}
+		}
+		const names = [...actors.values()];
+		if (names.length <= 1) {
 			return;
 		}
 		const emojis = [...new Set(set.map(n => n.reaction).filter(Boolean))]
@@ -162,7 +175,7 @@ ReactionsPlugin.mergeReactionNotifications = async function (data) {
 			args = [names[0], names.length - 1, emojis, ...where];
 		}
 		target.bodyShort = translator.compile(key, ...args);
-		target.mergeCount = set.length;
+		target.mergeCount = names.length;
 		set.slice(1).forEach(n => removed.add(n));
 	});
 	if (removed.size) {
@@ -171,19 +184,6 @@ ReactionsPlugin.mergeReactionNotifications = async function (data) {
 	return data;
 };
 
-// "Delete the notification when the built-in upvote is removed" lives in the forum settings
-// (Settings > Reputation & Flags), stored as the config key below. Falls back to the old plugin
-// setting when the forum setting was never saved. Default: on.
-const UNVOTE_CONFIG_KEY = 'reactions:deleteNotificationOnUnvote';
-
-function isUnvoteDeletionEnabled(pluginSettings) {
-	const value = meta.config && meta.config[UNVOTE_CONFIG_KEY];
-	if (value === undefined || value === null || value === '') {
-		return pluginSettings.deleteNotificationOnUnvote;
-	}
-	return !(value === 0 || value === '0' || value === false || value === 'false' || value === 'off');
-}
-
 // Read notifications are never deleted, only unread ones.
 async function isNotificationRead(nid, uid) {
 	if (!uid) {
@@ -191,30 +191,6 @@ async function isNotificationRead(nid, uid) {
 	}
 	return await db.isSortedSetMember(`uid:${uid}:notifications:read`, nid);
 }
-
-// The forum's built-in upvote ("like", not our emoji reactions): when the voter takes the upvote back
-// (or switches it to a downvote), NodeBB core fires action:post.unvote but keeps the notification.
-// Core's notification id for it is `upvote:post:<pid>:uid:<voter>`.
-ReactionsPlugin.onUnvote = async function (data) {
-	try {
-		if (!data || data.current !== 'upvote' || !data.pid || !data.uid) {
-			return;
-		}
-		const settings = await loadPluginConfig();
-		if (!isUnvoteDeletionEnabled(settings)) {
-			return;
-		}
-		const nid = `upvote:post:${data.pid}:uid:${data.uid}`;
-		const ownerUid = await posts.getPostField(data.pid, 'uid');
-		// a notification the author already read is never deleted
-		if (await isNotificationRead(nid, ownerUid)) {
-			return;
-		}
-		await notifications.rescind(nid);
-	} catch (e) {
-		console.error(e);
-	}
-};
 
 // Notification texts are stored with ":name:" shortcodes. After NodeBB translated them, swap the shortcodes
 // for the real emoji image (the HTML cannot travel through translator arguments, they are escaped).
@@ -801,7 +777,7 @@ SocketPlugins.reactions = {
 		const set = await getReactionSetKey(socket, data);
 		const uids = await db.getSetMembers(set);
 		const users = await user.getUsersFields(
-			uids.slice(0, MAX_USERS_IN_FULL_LIST),
+			uids,
 			['uid', 'username', 'userslug', 'picture', 'icon:text', 'icon:bgColor'],
 		);
 		return {
